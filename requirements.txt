@@ -1,0 +1,7 @@
+pyspark>=4.0
+pandas>=2.0,<3.0   # PySpark 4 doesn't fully support pandas 3 yet
+pyarrow>=14
+numpy
+pyyaml
+pytest
+kaggle             # only needed for src.download_data

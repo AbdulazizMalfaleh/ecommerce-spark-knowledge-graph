@@ -1,0 +1,286 @@
+<title>Store Knowledge Graph</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: header + count strip, then one working view (graph canvas beside a detail panel), tabbed. */
+:root {
+  --bg: #f5f6f4;
+  --surface: #ffffff;
+  --ink: #1d2422;
+  --muted: #5d6a66;
+  --line: #d9dfdc;
+  --accent: #0f7a6c;          /* observed relations, selection */
+  --derived: #b2561d;         /* inferred knowledge */
+  --node-text: #1d2422;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  /* category palette for product nodes */
+  --c1: #0f7a6c; --c2: #3b5bab; --c3: #b2561d; --c4: #8a4f9e; --c5: #7a8a1f;
+  --c6: #b8325a; --c7: #2f8fb5; --c8: #9a7b2b; --c9: #5b6b67; --c10: #c27a2c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121615; --surface: #1a201e; --ink: #e5ebe8; --muted: #95a39e; --line: #2c3532;
+    --accent: #3cc2ad; --derived: #f08a4b; --node-text: #e5ebe8;
+    --c1: #3cc2ad; --c2: #7b97e6; --c3: #f08a4b; --c4: #c08ad3; --c5: #b4c64a;
+    --c6: #ee6f93; --c7: #64c0e3; --c8: #d6b45c; --c9: #9aaba6; --c10: #f0a95c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121615; --surface: #1a201e; --ink: #e5ebe8; --muted: #95a39e; --line: #2c3532;
+  --accent: #3cc2ad; --derived: #f08a4b; --node-text: #e5ebe8;
+  --c1: #3cc2ad; --c2: #7b97e6; --c3: #f08a4b; --c4: #c08ad3; --c5: #b4c64a;
+  --c6: #ee6f93; --c7: #64c0e3; --c8: #d6b45c; --c9: #9aaba6; --c10: #f0a95c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.5 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 40px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font: 500 12px/1 var(--font-data); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 700 clamp(28px, 4vw, 40px)/1.1 var(--font-display); margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 65ch; }
+
+.counts { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 13px/1.4 var(--font-data); color: var(--muted);
+  border-block: 1px solid var(--line); padding-block: 10px; }
+.counts b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.counts .derived b { color: var(--derived); }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tabs button {
+  font: 600 15px/1 var(--font-body); color: var(--muted); background: none;
+  border: 1px solid transparent; border-radius: 6px; padding: 9px 14px; cursor: pointer;
+}
+.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--line); background: var(--surface); }
+.tabs button:focus-visible, .panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.view { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+@media (max-width: 820px) { .view { grid-template-columns: minmax(0, 1fr); } }
+.canvas { height: 560px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+@media (max-width: 820px) { .canvas { height: 420px; } }
+.panel { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.panel h2 { font: 600 20px/1.2 var(--font-display); margin: 0; overflow-wrap: anywhere; }
+.panel p { margin: 0; color: var(--muted); font-size: 15px; }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: 14px; margin: 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--font-data); font-size: 13px; overflow-wrap: anywhere; }
+.legend { display: grid; gap: 6px; font-size: 14px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.swatch { width: 22px; height: 0; border-top: 2px solid; flex: none; }
+.swatch.dashed { border-top-style: dashed; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.list { display: grid; gap: 2px; font-size: 14px; }
+.list div { display: flex; justify-content: space-between; gap: 12px; padding-block: 3px; border-bottom: 1px solid var(--line); }
+.list .n { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.hint { font-size: 13px; color: var(--muted); }
+.mono { font-family: var(--font-data); }
+.missing { padding: 24px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">E-commerce knowledge graph</div>
+    <h1>Store Knowledge Graph</h1>
+    <p class="lede">The ontology defines what can exist and how it connects. The graph is the store's real behaviour fitted to it. The orange relations were not in the data; Spark inferred them.</p>
+  </header>
+
+  <div class="counts" id="counts"></div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-ontology" aria-selected="true" data-view="ontology">Ontology</button>
+    <button role="tab" id="tab-brands" aria-selected="false" data-view="brands">Brand switching</button>
+    <button role="tab" id="tab-products" aria-selected="false" data-view="products">Bought together</button>
+  </div>
+
+  <div class="view">
+    <div class="canvas" id="canvas" role="img" aria-label="Interactive graph"></div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = n => Number(n).toLocaleString("en-US");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const canvas = document.getElementById("canvas");
+const panel = document.getElementById("panel");
+let network = null, current = "ontology";
+
+function counts() {
+  const el = document.getElementById("counts");
+  const parts = DATA.counts.nodes.map(([k, v]) => `<span>${esc(k)} <b>${fmt(v)}</b></span>`)
+    .concat(DATA.counts.edges.map(([k, v, d]) => `<span class="${d ? "derived" : ""}">${esc(k)} <b>${fmt(v)}</b></span>`));
+  el.innerHTML = parts.join("");
+}
+
+function baseOptions() {
+  return {
+    autoResize: true,
+    interaction: { hover: true, tooltipDelay: 120, navigationButtons: false },
+    nodes: { font: { color: css("--node-text"), face: "Source Sans 3, Segoe UI, sans-serif", size: 14 }, borderWidth: 1.5 },
+    edges: { smooth: { type: "dynamic" }, font: { color: css("--muted"), strokeWidth: 0, size: 11, face: "JetBrains Mono, monospace" },
+             color: { inherit: false } },
+    physics: { stabilization: { iterations: 300 }, barnesHut: { springLength: 120, centralGravity: 0.9, avoidOverlap: 0.4 } },
+  };
+}
+
+/* ---------------- views ---------------- */
+// Fixed layout for the ontology: the shopping flow left to right, product attributes on the right.
+const POS = { User: { x: -480, y: 0 }, Session: { x: -170, y: 0 }, Product: { x: 170, y: 0 },
+              Category: { x: 470, y: -150 }, Brand: { x: 470, y: 150 } };
+const SELF_ANGLE = { Product: Math.PI / 2, Category: -Math.PI / 4, Brand: Math.PI / 4 };
+
+function ontologyView() {
+  const o = DATA.ontology;
+  const nodes = o.entities.map(e => ({
+    id: e.name, label: e.name, shape: "box", margin: 12,
+    color: { background: css("--surface"), border: css("--accent"),
+             highlight: { background: css("--surface"), border: css("--accent") } },
+    font: { face: "Bricolage Grotesque, sans-serif", size: 18, color: css("--node-text") },
+    ...(POS[e.name] || {}),
+  }));
+  // Relations between the same two entities (Session -> Product: VIEWED, CARTED, PURCHASED)
+  // fan out on separate curves so their labels don't sit on top of each other.
+  const seen = {};
+  const edges = o.relations.map(r => {
+    const pair = r.from + ">" + r.to;
+    const k = (seen[pair] = (seen[pair] ?? -1) + 1);
+    const curve = k === 0 ? { enabled: false }
+      : { enabled: true, type: k % 2 ? "curvedCW" : "curvedCCW", roundness: 0.35 * Math.ceil(k / 2) };
+    return {
+      id: r.name, from: r.from, to: r.to, label: r.name, arrows: "to",
+      dashes: r.derived, width: r.derived ? 2 : 1.4,
+      color: { color: r.derived ? css("--derived") : css("--accent") },
+      smooth: curve,
+      font: { align: "top" },
+      selfReference: { size: 34, angle: SELF_ANGLE[r.from] ?? Math.PI / 4 },
+    };
+  });
+  const info = id => {
+    const e = o.entities.find(x => x.name === id);
+    if (e) return `<h2>${esc(e.name)}</h2><p>${esc(e.description)}</p>
+      <dl class="kv"><dt>key</dt><dd>${esc(e.key)}</dd>${Object.entries(e.properties).map(([k, t]) => `<dt>${esc(k)}</dt><dd>${esc(t)}</dd>`).join("")}</dl>`;
+    const r = o.relations.find(x => x.name === id);
+    if (r) return `<h2 class="mono">${esc(r.name)}</h2><p>${esc(r.from)} → ${esc(r.to)}${r.derived ? " · inferred" : " · observed"}</p><p>${esc(r.description)}</p>
+      <dl class="kv">${Object.entries(r.properties).map(([k, t]) => `<dt>${esc(k)}</dt><dd>${esc(t)}</dd>`).join("") || "<dt>properties</dt><dd>none</dd>"}</dl>`;
+    return "";
+  };
+  const intro = `<h2>The rules</h2><p>Five kinds of things and nine ways they may connect, read from <span class="mono">ontology.yaml</span>. The pipeline rejects any graph that breaks them.</p>
+    <div class="legend"><span><i class="swatch" style="border-color:var(--accent)"></i>observed in events</span>
+    <span><i class="swatch dashed" style="border-color:var(--derived)"></i>inferred by Spark</span></div>
+    <p class="hint">Select an entity or relation for its definition.</p>`;
+  return { nodes, edges, intro, info, options: { physics: { enabled: false } } };
+}
+
+function brandView() {
+  const b = DATA.brands;
+  const max = Math.max(...b.nodes.map(n => n.purchases), 1);
+  const cats = [...new Set(b.nodes.map(n => n.category))];
+  const col = c => css(`--c${(cats.indexOf(c) % 10) + 1}`);
+  const nodes = b.nodes.map(n => ({
+    id: n.id, label: n.id, shape: "dot", size: 10 + 30 * Math.sqrt(n.purchases / max),
+    color: { background: col(n.category), border: col(n.category) },
+    title: `${n.id}: ${fmt(n.purchases)} items bought`,
+    font: { size: 34, color: css("--node-text"), strokeWidth: 4, strokeColor: css("--surface") },
+  }));
+  const wmax = Math.max(...b.edges.map(e => e.net_loss), 1);
+  const edges = b.edges.map((e, i) => ({
+    id: "e" + i, from: e.src, to: e.dst, arrows: "to", width: 1 + 7 * e.net_loss / wmax,
+    color: { color: css("--derived"), opacity: 0.75 }, title: `${e.src} → ${e.dst}: net ${fmt(e.net_loss)} sessions`,
+  }));
+  const info = id => {
+    const n = b.nodes.find(x => x.id === id); if (!n) return "";
+    const lost = b.edges.filter(e => e.src === id).sort((a, c) => c.net_loss - a.net_loss);
+    const won = b.edges.filter(e => e.dst === id).sort((a, c) => c.net_loss - a.net_loss);
+    const rows = (arr, key) => arr.length ? arr.slice(0, 6).map(e => `<div><span>${esc(e[key])}</span><span class="n">${fmt(e.net_loss)}</span></div>`).join("") : `<div><span>none</span></div>`;
+    return `<h2>${esc(n.id)}</h2><p>${esc(n.category)} · ${fmt(n.purchases)} items bought</p>
+      <p class="eyebrow">Net loses shoppers to</p><div class="list">${rows(lost, "dst")}</div>
+      <p class="eyebrow">Net wins shoppers from</p><div class="list">${rows(won, "src")}</div>`;
+  };
+  const intro = `<h2>Who loses to whom</h2><p>An arrow from A to B: shoppers viewed A but bought B in the same session and category, more often than the reverse. Thicker means a larger net loss.</p>
+    <div class="legend">${cats.map(c => `<span><i class="dot" style="background:${col(c)}"></i>${esc(c)}</span>`).join("")}</div>
+    <p class="hint">Circle size = items bought. Select a brand for its balance.</p>`;
+  return { nodes, edges, intro, info };
+}
+
+function productView() {
+  const p = DATA.products;
+  const cats = [...new Set(p.nodes.map(n => n.category_main))];
+  const col = c => css(`--c${(cats.indexOf(c) % 10) + 1}`);
+  const max = Math.max(...p.nodes.map(n => n.pagerank), 1);
+  const nodes = p.nodes.map(n => ({
+    id: n.id, label: n.brand || n.id, shape: "dot", size: 6 + 26 * Math.sqrt(n.pagerank / max),
+    color: { background: col(n.category_main), border: col(n.category_main) },
+    title: `${n.id} · ${n.brand || "no brand"} · PageRank ${n.pagerank}`,
+    font: { size: 26, color: css("--node-text"), strokeWidth: 4, strokeColor: css("--surface") },
+  }));
+  const edges = p.edges.map((e, i) => ({
+    id: "p" + i, from: e.src, to: e.dst, arrows: "to", width: 1 + Math.min(e.lift, 20) / 4,
+    color: { color: css("--muted"), opacity: 0.5 }, title: `${e.customers} shared buyers · confidence ${e.confidence} · lift ${e.lift}`,
+  }));
+  const info = id => {
+    const n = p.nodes.find(x => x.id === id); if (!n) return "";
+    const out = p.edges.filter(e => e.src === id).sort((a, c) => c.confidence - a.confidence);
+    return `<h2 class="mono">${esc(n.id)}</h2><p>${esc(n.brand || "no brand")} · ${esc(n.category || "uncategorised")}</p>
+      <dl class="kv"><dt>price</dt><dd>${esc(n.price)}</dd><dt>PageRank</dt><dd>${esc(n.pagerank)} × average</dd></dl>
+      <p class="eyebrow">Buyers also bought</p><div class="list">${out.length ? out.slice(0, 8).map(e => `<div><span class="mono">${esc(e.dst)}</span><span class="n">${Math.round(e.confidence * 100)}% · lift ${e.lift}</span></div>`).join("") : "<div><span>no strong links</span></div>"}</div>`;
+  };
+  const intro = `<h2>Bought together</h2><p>The most central products in the co-purchase network and their strongest associations (lift above 1, so more than chance). Circle size = PageRank.</p>
+    <div class="legend">${cats.map(c => `<span><i class="dot" style="background:${col(c)}"></i>${esc(c)}</span>`).join("")}</div>
+    <p class="hint">Select a product for what its buyers also bought.</p>`;
+  return { nodes, edges, intro, info };
+}
+
+const VIEWS = { ontology: ontologyView, brands: brandView, products: productView };
+
+function render() {
+  if (!DATA) { canvas.innerHTML = '<p class="missing">No graph data in this page.</p>'; return; }
+  if (typeof vis === "undefined") { canvas.innerHTML = '<p class="missing">The graph library could not load. Check your internet connection and reload.</p>'; return; }
+  const v = VIEWS[current]();
+  panel.innerHTML = v.intro;
+  const opts = baseOptions();
+  if (v.options) Object.assign(opts.physics, v.options.physics);
+  if (network) network.destroy();
+  network = new vis.Network(canvas, { nodes: new vis.DataSet(v.nodes), edges: new vis.DataSet(v.edges) }, opts);
+  // fit the whole graph in the frame once it has settled
+  if (v.options && v.options.physics && v.options.physics.enabled === false) {
+    network.once("afterDrawing", () => network.fit({ animation: false }));
+  } else {
+    network.once("stabilizationIterationsDone", () => network.fit({ animation: false }));
+  }
+  network.on("click", ev => {
+    const id = ev.nodes[0] ?? ev.edges[0];
+    panel.innerHTML = id !== undefined ? (v.info(id) || v.intro) : v.intro;
+  });
+}
+
+document.querySelectorAll(".tabs button").forEach(btn => btn.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b === btn)));
+  current = btn.dataset.view;
+  try { localStorage.setItem("kg-view", current); } catch (e) {}
+  render();
+}));
+
+/* redraw with the right colours when the theme changes */
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+if (DATA) counts();
+try {
+  const saved = localStorage.getItem("kg-view");
+  if (saved && VIEWS[saved]) document.getElementById("tab-" + saved).click();
+  else render();
+} catch (e) { render(); }
+</script>

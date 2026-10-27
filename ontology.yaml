@@ -1,0 +1,111 @@
+# ============================================================================
+# E-commerce ONTOLOGY
+# The rules of the world: which kinds of things exist (entities) and how they
+# may connect (relations). The graph builder (src/graph.py) produces nodes and
+# edges from the data and REJECTS the build if anything breaks these rules.
+# ============================================================================
+
+entities:
+  User:
+    key: user_id
+    description: A shopper, identified across sessions.
+    properties: {}
+
+  Session:
+    key: user_session
+    description: One visit to the store.
+    properties:
+      session_start: timestamp
+      events: long
+      converted: boolean
+
+  Product:
+    key: product_id
+    description: An item for sale.
+    properties:
+      current_price: double
+      pagerank: double          # importance in the co-purchase network (computed)
+
+  Brand:
+    key: brand
+    description: The maker of a product.
+    properties: {}
+
+  Category:
+    key: category_path          # e.g. "electronics.audio.headphone"
+    description: A node in the category taxonomy.
+    properties:
+      name: string              # last segment, e.g. "headphone"
+      level: int                # 1 = top level
+
+relations:
+  # ---------- observed: taken directly from events ----------
+  HAD:
+    from: User
+    to: Session
+    description: The user had this session.
+    properties: {}
+
+  VIEWED:
+    from: Session
+    to: Product
+    description: The product was viewed during the session.
+    properties:
+      times: long
+
+  CARTED:
+    from: Session
+    to: Product
+    description: The product was added to the cart during the session.
+    properties:
+      times: long
+
+  PURCHASED:
+    from: Session
+    to: Product
+    description: The product was bought during the session.
+    properties:
+      items: long
+      amount: double
+
+  MADE_BY:
+    from: Product
+    to: Brand
+    description: The product's brand.
+    properties: {}
+
+  BELONGS_TO:
+    from: Product
+    to: Category
+    description: The product's most specific category.
+    properties: {}
+
+  SUBCATEGORY_OF:
+    from: Category
+    to: Category
+    description: Taxonomy, e.g. headphone -> audio -> electronics.
+    properties: {}
+
+  # ---------- derived: knowledge inferred from behaviour ----------
+  BOUGHT_TOGETHER:
+    from: Product
+    to: Product
+    derived: true
+    description: >
+      Customers who bought FROM also bought TO (market-basket association).
+      confidence = P(bought TO | bought FROM);  lift > 1 = stronger than chance.
+    properties:
+      customers: long
+      confidence: double
+      lift: double
+
+  SWITCHED_TO:
+    from: Brand
+    to: Brand
+    derived: true
+    description: >
+      In a session, the shopper viewed FROM but bought TO instead, within the
+      same category. Reveals which brands lose customers to which.
+    properties:
+      sessions: long
+      category_main: string
